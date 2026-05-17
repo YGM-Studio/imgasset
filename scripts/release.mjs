@@ -2,7 +2,7 @@
 import { spawnSync } from "node:child_process";
 import process from "node:process";
 
-const versionSpec = process.argv[2] || "patch";
+const versionSpec = process.argv.slice(2).find((arg) => arg !== "--") || "patch";
 const root = process.cwd();
 const allowedSpecs = new Set([
   "major",
