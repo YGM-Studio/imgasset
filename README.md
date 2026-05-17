@@ -185,6 +185,10 @@ imgasset doctor
 
 Run `imgasset help <command>` for command-specific options.
 
+## Roadmap
+
+See [docs/requirements.md](docs/requirements.md) for the public roadmap and design notes.
+
 ## Development
 
 ```bash
