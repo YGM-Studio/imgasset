@@ -201,6 +201,25 @@ pnpm link --global
 imgasset --help
 ```
 
+## Release
+
+Publishing is tag-driven through GitHub Actions and npm Trusted Publishing.
+
+Configure npm Trusted Publishing for `YGM-Studio/imgasset` with workflow filename `publish.yml`, then run:
+
+```bash
+pnpm run release
+```
+
+The release script defaults to a patch bump. It also accepts npm version specs:
+
+```bash
+pnpm run release -- minor
+pnpm run release -- 0.2.0
+```
+
+The script updates `package.json`, synchronizes `pnpm-lock.yaml`, runs CI checks, creates a `vX.Y.Z` tag, commits, and pushes the branch and tag. GitHub Actions publishes the package to `https://registry.npmjs.org/` when the tag is pushed.
+
 ## License
 
 MIT
