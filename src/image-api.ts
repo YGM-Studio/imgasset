@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { ProxyAgent } from "undici";
 import { CliError, ImageApiError } from "./errors.js";
 import { writeLine } from "./io.js";
+import { USER_AGENT } from "./package-info.js";
 import { safeResolveInside } from "./paths.js";
 import type { Runtime } from "./io.js";
 import type { GeneratedImageResult, PromptJob, ResolvedGenerationOptions } from "./types.js";
@@ -93,7 +94,7 @@ async function requestImage(job: PromptJob, options: ResolvedGenerationOptions, 
       authorization: `Bearer ${options.apiKey}`,
       "content-type": "application/json",
       accept: "application/json",
-      "user-agent": "imgasset/0.1.0"
+      "user-agent": USER_AGENT
     },
     body: JSON.stringify(payload),
     signal: controller.signal

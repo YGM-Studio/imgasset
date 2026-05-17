@@ -1,36 +1,34 @@
 # imgasset
 
-`imgasset` is a CLI for generating and compressing image assets through an OpenAI-compatible image API.
+`imgasset` is a command-line tool for generating and compressing image assets with an OpenAI-compatible image API.
 
-The goal is to make image asset production reusable across projects:
+It is designed for repeatable local asset workflows:
 
-- save reusable API profiles such as base URL, model, image size, quality, and proxy;
-- keep API keys out of project repositories;
-- generate image originals from JSONL prompt files;
-- compress generated outputs through `tinify-cli`;
-- support repeatable, resumable project workflows.
+- save reusable API profiles for base URL, model, image size, quality, and proxy settings;
+- keep API keys outside project repositories;
+- generate raster originals from JSONL prompt files;
+- compress generated outputs through the bundled `tinify-cli` dependency;
+- resume interrupted runs without regenerating completed files.
 
-This repository is private while the tool is being hardened. The project may be open sourced later after the CLI, security model, and documentation are stable.
+## Installation
 
-See [docs/requirements.md](docs/requirements.md) for the current product requirements.
-
-## Install For Local Development
+Install globally from npm:
 
 ```bash
-pnpm install
-pnpm run build
-pnpm link --global
+npm install -g @yigemo/imgasset
 ```
 
-The CLI command is:
+Check the CLI:
 
 ```bash
 imgasset --help
 ```
 
-## Basic Workflow
+Node.js 20 or newer is required.
 
-Initialize local config:
+## Quick Start
+
+Initialize the global config:
 
 ```bash
 imgasset config init
@@ -49,7 +47,7 @@ imgasset profile set default \
   --default
 ```
 
-Store the API key outside the project repository:
+Store the image API key outside the project repository:
 
 ```bash
 imgasset secret set default
@@ -70,7 +68,7 @@ imgasset generate prompts.jsonl \
   --skip-existing
 ```
 
-Compress generated originals through the bundled `tinify-cli` dependency:
+Compress generated originals:
 
 ```bash
 imgasset compress temp/imgasset/article/raw \
@@ -96,6 +94,30 @@ Check local readiness:
 ```bash
 imgasset doctor
 ```
+
+## Prompt Format
+
+Each JSONL line describes one output image:
+
+```json
+{"out":"article/01-context.png","prompt":"Minimal surreal isometric 3D editorial poster..."}
+```
+
+Optional per-job overrides:
+
+```json
+{
+  "out": "article/02-system-map.png",
+  "prompt": "Minimal surreal isometric 3D editorial poster...",
+  "model": "gpt-image-2",
+  "size": "1536x1024",
+  "quality": "medium",
+  "outputFormat": "png",
+  "n": 1
+}
+```
+
+The `out` path is resolved inside the raw output directory. Parent-directory escapes are rejected.
 
 ## Config Files
 
@@ -125,10 +147,60 @@ Optional project config:
 
 Project config must not contain API keys.
 
+Recommended `.gitignore` entries for consuming projects:
+
+```gitignore
+temp/
+.env
+.env.*
+```
+
+## Secret Handling
+
+Use `imgasset secret set <profile>` for image API keys. The command stores keys under the global config directory instead of the current project.
+
+Environment variable fallback is also supported:
+
+```bash
+IMGASSET_API_KEY=... imgasset generate prompts.jsonl
+```
+
+`OPENAI_API_KEY` is accepted as a fallback for compatibility.
+
+Avoid passing long-lived keys with `--key` in shared shells because shell history may record the command. Interactive input, stdin, environment variables managed by a password manager, or short-lived keys are safer.
+
+## Commands
+
+```bash
+imgasset config init
+imgasset profile set <name>
+imgasset profile list
+imgasset secret set <profile>
+imgasset secret unset <profile>
+imgasset generate <prompts>
+imgasset compress <input>
+imgasset run <prompts>
+imgasset doctor
+```
+
+Run `imgasset help <command>` for command-specific options.
+
 ## Development
 
 ```bash
+pnpm install
 pnpm run build
 pnpm run test
 pnpm run check
 ```
+
+Link the local CLI:
+
+```bash
+pnpm link --global
+imgasset --help
+```
+
+## License
+
+MIT

@@ -71,8 +71,7 @@ Recommended implementation:
 - compression dependency: `tinify-cli`;
 - test runner: `vitest`;
 - binary command: `imgasset`;
-- package name: `@yigemo/imgasset`;
-- public package name can be revisited before open sourcing.
+- package name: `@yigemo/imgasset`.
 
 `tinify-cli` should be a normal dependency of this project so users can install one package and run generation plus compression without manually installing a second CLI.
 
@@ -602,19 +601,17 @@ The MVP is complete when:
 - JSON report;
 - end-to-end test with mocked API and mocked compression.
 
-### Milestone 6: Open Source Readiness
+### Milestone 6: Release Readiness
 
 - security review;
 - docs cleanup;
 - examples without real credentials;
-- license decision;
-- package naming decision;
+- license and package metadata;
 - release workflow.
 
 ## 17. Open Questions
 
 - Should secrets use macOS Keychain first, or should the MVP start with a strict-permission local file?
-- Should the package stay private on npm until the open source review is complete, or be published publicly under `@yigemo/imgasset` immediately?
 - Should project config support YAML, or keep JSON only for predictability?
 - Should prompt files support JSON arrays in addition to JSONL?
 - Should compression support multiple output variants in one run, such as JPEG plus WebP?

@@ -19,13 +19,12 @@ import { CliError, formatError } from "./errors.js";
 import { generateImages } from "./image-api.js";
 import { createRuntime, writeLine } from "./io.js";
 import { readPromptJobs } from "./jsonl.js";
+import { PACKAGE_VERSION } from "./package-info.js";
 import { taskNameFromPromptPath } from "./paths.js";
 import { printStoredSecret, readSecretValue } from "./secret-input.js";
 import { DEFAULT_PROFILE } from "./types.js";
 import type { Profile, ProjectConfig, ResolvedGenerationOptions } from "./types.js";
 import type { Runtime, RuntimeOverrides } from "./io.js";
-
-const VERSION = "0.1.0";
 
 export async function runCli(argv: string[], overrides: RuntimeOverrides = {}): Promise<number> {
   const runtime = createRuntime(overrides);
@@ -48,7 +47,7 @@ function createProgram(runtime: Runtime): Command {
   program
     .name("imgasset")
     .description("Generate and compress image assets with an OpenAI-compatible image API.")
-    .version(VERSION)
+    .version(PACKAGE_VERSION)
     .exitOverride()
     .configureOutput({
       writeOut: (text) => runtime.stdout.write(text),

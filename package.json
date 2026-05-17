@@ -10,8 +10,21 @@
     "bin",
     "dist",
     "README.md",
-    "docs"
+    "docs",
+    "LICENSE",
+    "SECURITY.md"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YGM-Studio/imgasset.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YGM-Studio/imgasset/issues"
+  },
+  "homepage": "https://github.com/YGM-Studio/imgasset#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
     "test": "vitest run test",
@@ -30,7 +43,7 @@
     "assets"
   ],
   "author": "YGM Studio",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "dependencies": {
     "@yigemo/tinify-cli": "^0.1.0",
     "commander": "^14.0.2",
