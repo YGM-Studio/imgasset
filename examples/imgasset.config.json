@@ -1,0 +1,10 @@
+{
+  "profile": "default",
+  "rawDir": "temp/imgasset/example/raw",
+  "publishDir": "public/assets/example",
+  "compress": {
+    "format": "jpeg",
+    "background": "white",
+    "suffix": ""
+  }
+}

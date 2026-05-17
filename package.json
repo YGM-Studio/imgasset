@@ -1,0 +1,45 @@
+{
+  "name": "@yigemo/imgasset",
+  "version": "0.1.0",
+  "description": "OpenAI-compatible image asset generation and compression CLI.",
+  "type": "module",
+  "bin": {
+    "imgasset": "bin/imgasset.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "docs"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run test",
+    "check": "pnpm run build && pnpm run test && node bin/imgasset.js --help",
+    "prepack": "pnpm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "openai",
+    "image",
+    "tinify",
+    "tinypng",
+    "cli",
+    "assets"
+  ],
+  "author": "YGM Studio",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@yigemo/tinify-cli": "^0.1.0",
+    "commander": "^14.0.2",
+    "undici": "^7.16.0",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.13"
+  }
+}
