@@ -131,6 +131,19 @@ Optional per-job overrides:
 }
 ```
 
+Reference-image jobs:
+
+```json
+{
+  "out": "article/03-doodle-logo.png",
+  "prompt": "Use the reference logo as the identity anchor and redraw it as a playful child doodle.",
+  "images": ["refs/imgasset-logo.jpg"],
+  "size": "1024x1024"
+}
+```
+
+When a job includes `images` or `mask`, `imgasset` calls the image edits endpoint with `multipart/form-data` and uploads local image files as binary parts. Without `images` or `mask`, it uses the normal image generations endpoint with JSON. Reference image paths are resolved from the current working directory and must be relative paths inside the project. Large reference images can fail through some proxies or compatible gateways; resize or compress references first when possible.
+
 The `out` path is resolved inside the raw output directory. Parent-directory escapes are rejected.
 
 ## Prompt Templates

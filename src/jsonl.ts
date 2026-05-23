@@ -6,6 +6,8 @@ import type { PromptJob } from "./types.js";
 const promptJobSchema = z.object({
   out: z.string().min(1),
   prompt: z.string().min(1),
+  images: z.array(z.string().min(1)).min(1).max(16).optional(),
+  mask: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
   size: z.string().min(1).optional(),
   quality: z.string().min(1).optional(),
@@ -35,6 +37,12 @@ export async function readPromptJobs(path: string): Promise<PromptJob[]> {
       throw new CliError(`${path}:${index + 1}: invalid prompt job: ${parsed.error.issues[0]?.message || "unknown error"}`);
     }
     assertSafeOutPath(path, index + 1, parsed.data.out);
+    for (const image of parsed.data.images || []) {
+      assertSafeInputPath(path, index + 1, image, "images");
+    }
+    if (parsed.data.mask) {
+      assertSafeInputPath(path, index + 1, parsed.data.mask, "mask");
+    }
     jobs.push(parsed.data);
   }
 
@@ -51,5 +59,14 @@ function assertSafeOutPath(file: string, line: number, out: string): void {
   }
   if (out.split(/[\\/]+/).includes("..")) {
     throw new CliError(`${file}:${line}: out must not contain '..'.`);
+  }
+}
+
+function assertSafeInputPath(file: string, line: number, input: string, field: string): void {
+  if (input.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(input)) {
+    throw new CliError(`${file}:${line}: ${field} paths must be relative.`);
+  }
+  if (input.split(/[\\/]+/).includes("..")) {
+    throw new CliError(`${file}:${line}: ${field} paths must not contain '..'.`);
   }
 }

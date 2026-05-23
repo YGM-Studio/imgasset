@@ -26,17 +26,22 @@ describe("readPromptJobs", () => {
 # comment
 {"out":"article/01.png","prompt":"Generate a poster","quality":"medium"}
 
-{"out":"article/02.png","prompt":"Generate another poster","n":1}
+{"out":"article/02.png","prompt":"Generate another poster","images":["refs/source.jpg"],"mask":"refs/mask.png","n":1}
 `);
 
     await expect(readPromptJobs(path)).resolves.toEqual([
       { out: "article/01.png", prompt: "Generate a poster", quality: "medium" },
-      { out: "article/02.png", prompt: "Generate another poster", n: 1 }
+      { out: "article/02.png", prompt: "Generate another poster", images: ["refs/source.jpg"], mask: "refs/mask.png", n: 1 }
     ]);
   });
 
   it("rejects unsafe output paths", async () => {
     const path = await tempFile(`{"out":"../secret.png","prompt":"Generate a poster"}\n`);
     await expect(readPromptJobs(path)).rejects.toThrow("out must not contain '..'");
+  });
+
+  it("rejects unsafe reference image paths", async () => {
+    const path = await tempFile(`{"out":"safe.png","prompt":"Generate a poster","images":["../secret.png"]}\n`);
+    await expect(readPromptJobs(path)).rejects.toThrow("images paths must not contain '..'");
   });
 });

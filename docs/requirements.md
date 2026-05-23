@@ -102,6 +102,8 @@ public/assets/<task>/01-context.jpg
 - Environment variable fallback through `IMGASSET_API_KEY` and `OPENAI_API_KEY`.
 - JSONL prompt parsing.
 - OpenAI-compatible `/images/generations` requests with `b64_json` response handling.
+- Reference-image generation through `/images/edits` when prompt jobs include `images` or `mask`.
+- Multipart binary upload for local reference images.
 - Retry handling for transient API failures.
 - Path escape protection for prompt output paths.
 - Generation resume support through `--skip-existing`.

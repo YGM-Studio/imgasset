@@ -1,5 +1,5 @@
-import { mkdir, stat, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, extname, resolve } from "node:path";
 import { ProxyAgent } from "undici";
 import { CliError, ImageApiError } from "./errors.js";
 import { writeLine } from "./io.js";
@@ -70,6 +70,13 @@ async function requestWithRetries(job: PromptJob, options: ResolvedGenerationOpt
 }
 
 async function requestImage(job: PromptJob, options: ResolvedGenerationOptions, runtime: Runtime): Promise<unknown> {
+  if (hasReferenceInputs(job)) {
+    return await requestImageEdit(job, options, runtime);
+  }
+  return await requestImageGeneration(job, options, runtime);
+}
+
+async function requestImageGeneration(job: PromptJob, options: ResolvedGenerationOptions, runtime: Runtime): Promise<unknown> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutSeconds * 1000);
   const endpoint = `${options.baseURL.replace(/\/+$/, "")}/images/generations`;
@@ -97,6 +104,72 @@ async function requestImage(job: PromptJob, options: ResolvedGenerationOptions, 
       "user-agent": USER_AGENT
     },
     body: JSON.stringify(payload),
+    signal: controller.signal
+  };
+  if (options.proxy) {
+    init.dispatcher = new ProxyAgent(options.proxy);
+  }
+
+  try {
+    const response = await runtime.fetchImpl(endpoint, init as RequestInit);
+    const text = await response.text();
+    if (!response.ok) {
+      throw new ImageApiError(`HTTP ${response.status}: ${text}`, {
+        status: response.status,
+        retryAfter: parseRetryAfter(text)
+      });
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new ImageApiError("Image API response is not valid JSON.");
+    }
+  } catch (error) {
+    if (error instanceof ImageApiError) {
+      throw error;
+    }
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new ImageApiError(`Request timed out after ${options.timeoutSeconds}s.`);
+    }
+    throw new ImageApiError(error instanceof Error ? error.message : String(error));
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function requestImageEdit(job: PromptJob, options: ResolvedGenerationOptions, runtime: Runtime): Promise<unknown> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutSeconds * 1000);
+  const endpoint = `${options.baseURL.replace(/\/+$/, "")}/images/edits`;
+  const form = new FormData();
+  form.set("model", job.model || options.model);
+  form.set("prompt", job.prompt);
+  form.set("size", job.size || options.size);
+  form.set("quality", job.quality || options.quality);
+  form.set("n", String(job.n || 1));
+  form.set("output_format", job.outputFormat || options.outputFormat);
+
+  for (const image of job.images || []) {
+    form.append("image", await fileBlob(resolve(runtime.cwd, image)), basename(image));
+  }
+  if (job.mask) {
+    form.set("mask", await fileBlob(resolve(runtime.cwd, job.mask)), basename(job.mask));
+  }
+
+  const init: {
+    method: string;
+    headers: Record<string, string>;
+    body: FormData;
+    signal: AbortSignal;
+    dispatcher?: unknown;
+  } = {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${options.apiKey}`,
+      accept: "application/json",
+      "user-agent": USER_AGENT
+    },
+    body: form,
     signal: controller.signal
   };
   if (options.proxy) {
@@ -173,6 +246,29 @@ function retryDelaySeconds(error: unknown, attempt: number): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
+}
+
+function hasReferenceInputs(job: PromptJob): boolean {
+  return Boolean((job.images && job.images.length > 0) || job.mask);
+}
+
+async function fileBlob(path: string): Promise<Blob> {
+  return new Blob([await readFile(path)], { type: mimeType(path) });
+}
+
+function mimeType(path: string): string {
+  switch (extname(path).toLowerCase()) {
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".webp":
+      return "image/webp";
+    case ".gif":
+      return "image/gif";
+    case ".png":
+    default:
+      return "image/png";
+  }
 }
 
 async function exists(path: string): Promise<boolean> {

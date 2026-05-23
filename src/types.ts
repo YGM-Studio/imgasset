@@ -50,6 +50,8 @@ export interface ProjectConfig {
 export interface PromptJob {
   out: string;
   prompt: string;
+  images?: string[];
+  mask?: string;
   model?: string;
   size?: string;
   quality?: string;
