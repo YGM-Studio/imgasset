@@ -8,7 +8,9 @@ import {
   readProjectConfig,
   readSecretConfig,
   resolveApiKey,
+  resolvePlannerApiKey,
   secretsPath,
+  validatePlannerProfile,
   validateProfile,
   writeAppConfig,
   writeSecretConfig,
@@ -21,11 +23,14 @@ import { createRuntime, writeLine } from "./io.js";
 import { readPromptJobs } from "./jsonl.js";
 import { PACKAGE_VERSION } from "./package-info.js";
 import { taskNameFromPromptPath } from "./paths.js";
-import { printStoredSecret, readSecretValue } from "./secret-input.js";
+import { resolvePlannerProfile, suggestTemplatesWithPlanner } from "./planner-api.js";
+import { printStoredPlannerSecret, printStoredSecret, readSecretValue } from "./secret-input.js";
+import { suggestLocalTemplates } from "./suggest.js";
 import { getPromptTemplate, listPromptTemplates, renderPromptTemplate } from "./templates.js";
-import { DEFAULT_PROFILE } from "./types.js";
-import type { Profile, ProjectConfig, PromptJob, ResolvedGenerationOptions } from "./types.js";
+import { DEFAULT_PLANNER_PROFILES, DEFAULT_PROFILE } from "./types.js";
+import type { PlannerProfile, PlannerProvider, Profile, ProjectConfig, PromptJob, ResolvedGenerationOptions } from "./types.js";
 import type { Runtime, RuntimeOverrides } from "./io.js";
+import type { SuggestResult, TemplateRecommendation } from "./suggest.js";
 
 export async function runCli(argv: string[], overrides: RuntimeOverrides = {}): Promise<number> {
   const runtime = createRuntime(overrides);
@@ -82,6 +87,36 @@ function createProgram(runtime: Runtime): Command {
     .description("List saved profiles without printing secrets.")
     .action(async () => listProfiles(runtime));
 
+  const planner = program.command("planner").description("Manage AI planner profiles for prompt template suggestions.");
+  planner
+    .command("set <name>")
+    .description("Create or update an AI planner profile.")
+    .requiredOption("--provider <provider>", "planner provider: openai or deepseek")
+    .option("--base-url <url>", "planner API base URL")
+    .option("--model <model>", "planner model name")
+    .option("--proxy <url>", "HTTP proxy URL")
+    .option("--timeout-seconds <seconds>", "request timeout in seconds", parseInteger)
+    .option("--retries <count>", "retry count", parseInteger)
+    .option("--default", "make this the default planner")
+    .action(async (name, options) => setPlanner(name, options, runtime));
+
+  planner
+    .command("list")
+    .description("List saved AI planner profiles without printing secrets.")
+    .action(async () => listPlanners(runtime));
+
+  const plannerSecret = planner.command("secret").description("Manage AI planner API secrets.");
+  plannerSecret
+    .command("set <planner>")
+    .description("Store an API key for a planner outside project repositories.")
+    .option("--key <key>", "API key; prefer interactive prompt or stdin for shell history safety")
+    .action(async (plannerName, options) => setPlannerSecret(plannerName, options.key, runtime));
+
+  plannerSecret
+    .command("unset <planner>")
+    .description("Remove an API key for a planner.")
+    .action(async (plannerName) => unsetPlannerSecret(plannerName, runtime));
+
   const secret = program.command("secret").description("Manage API secrets.");
   secret
     .command("set <profile>")
@@ -118,6 +153,15 @@ function createProgram(runtime: Runtime): Command {
     .option("--output-format <format>", "prompt job output format override")
     .option("-n <count>", "number of images to generate", parseInteger)
     .action(async (id, options) => useTemplate(id, options, runtime));
+
+  template
+    .command("suggest <brief...>")
+    .description("Recommend built-in prompt templates for a brief.")
+    .option("--planner <name>", "AI planner profile name")
+    .option("--local", "use local rules only")
+    .option("--json", "print machine-readable JSON")
+    .option("--top <count>", "maximum recommendations to return", parsePositiveInteger, 3)
+    .action(async (briefParts, options) => suggestTemplate(briefParts, options, runtime));
 
   program
     .command("generate <prompts>")
@@ -172,9 +216,9 @@ async function initConfig(runtime: Runtime, force: boolean): Promise<void> {
   if (!force && (await pathExists(appPath))) {
     throw new CliError(`Config already exists at ${appPath}. Use --force to overwrite.`);
   }
-  await writeAppConfig(appPath, { profiles: {} });
+  await writeAppConfig(appPath, { profiles: {}, planners: {} });
   if (!(await pathExists(secretPath))) {
-    await writeSecretConfig(secretPath, { profiles: {} });
+    await writeSecretConfig(secretPath, { profiles: {}, planners: {} });
   }
   writeLine(runtime.stdout, `Config path: ${appPath}`);
   writeLine(runtime.stdout, `Secrets path: ${secretPath}`);
@@ -226,6 +270,58 @@ async function listProfiles(runtime: Runtime): Promise<void> {
   }
 }
 
+async function setPlanner(name: string, options: Record<string, unknown>, runtime: Runtime): Promise<void> {
+  const provider = parsePlannerProvider(options.provider);
+  const appPath = configPath(runtime.env);
+  const config = await readAppConfig(appPath);
+  const existing = config.planners[name] || { provider };
+  if (existing.provider !== provider) {
+    throw new CliError(`Planner "${name}" already uses provider ${existing.provider}. Create a new planner for ${provider}.`);
+  }
+  const next: PlannerProfile = {
+    ...existing,
+    ...stripUndefined({
+      provider,
+      baseURL: stringOption(options.baseUrl),
+      model: stringOption(options.model),
+      proxy: stringOption(options.proxy),
+      timeoutSeconds: numberOption(options.timeoutSeconds),
+      retries: numberOption(options.retries)
+    })
+  };
+  config.planners[name] = validatePlannerProfile(next);
+  if (options.default || !config.defaultPlanner) {
+    config.defaultPlanner = name;
+  }
+  await writeAppConfig(appPath, config);
+  writeLine(runtime.stdout, `Saved planner "${name}" at ${appPath}.`);
+}
+
+async function listPlanners(runtime: Runtime): Promise<void> {
+  const appPath = configPath(runtime.env);
+  const secretPath = secretsPath(runtime.env);
+  const config = await readAppConfig(appPath);
+  const secrets = await readSecretConfig(secretPath);
+  const names = Object.keys(config.planners).sort();
+  if (names.length === 0) {
+    writeLine(runtime.stdout, "No planners configured.");
+    return;
+  }
+  for (const name of names) {
+    const planner = config.planners[name];
+    if (!planner) {
+      continue;
+    }
+    const defaults = DEFAULT_PLANNER_PROFILES[planner.provider];
+    const defaultMark = config.defaultPlanner === name ? " (default)" : "";
+    const keyStatus = resolvePlannerApiKey({ plannerName: name, provider: planner.provider, secrets, env: runtime.env }) ? "yes" : "no";
+    writeLine(
+      runtime.stdout,
+      `${name}${defaultMark}: provider=${planner.provider}, baseURL=${planner.baseURL || defaults.baseURL}, model=${planner.model || defaults.model}, secret=${keyStatus}`
+    );
+  }
+}
+
 async function setSecret(profileName: string, keyOption: string | undefined, runtime: Runtime): Promise<void> {
   const secretPath = secretsPath(runtime.env);
   const key = keyOption || (await readSecretValue(runtime));
@@ -244,6 +340,26 @@ async function unsetSecret(profileName: string, runtime: Runtime): Promise<void>
   delete secrets.profiles[profileName];
   await writeSecretConfig(secretPath, secrets);
   writeLine(runtime.stdout, `Removed API key for profile "${profileName}".`);
+}
+
+async function setPlannerSecret(plannerName: string, keyOption: string | undefined, runtime: Runtime): Promise<void> {
+  const secretPath = secretsPath(runtime.env);
+  const key = keyOption || (await readSecretValue(runtime));
+  if (!key) {
+    throw new CliError("Provide an API key with --key, stdin, or the interactive prompt.");
+  }
+  const secrets = await readSecretConfig(secretPath);
+  secrets.planners[plannerName] = { apiKey: key.trim() };
+  await writeSecretConfig(secretPath, secrets);
+  printStoredPlannerSecret(runtime, plannerName, secretPath);
+}
+
+async function unsetPlannerSecret(plannerName: string, runtime: Runtime): Promise<void> {
+  const secretPath = secretsPath(runtime.env);
+  const secrets = await readSecretConfig(secretPath);
+  delete secrets.planners[plannerName];
+  await writeSecretConfig(secretPath, secrets);
+  writeLine(runtime.stdout, `Removed API key for planner "${plannerName}".`);
 }
 
 async function listTemplates(runtime: Runtime): Promise<void> {
@@ -309,6 +425,43 @@ async function useTemplate(id: string, options: Record<string, unknown>, runtime
   await mkdir(dirname(target), { recursive: true });
   await appendFile(target, `${line}\n`, "utf8");
   writeLine(runtime.stdout, `Appended prompt job to ${target}.`);
+}
+
+async function suggestTemplate(briefParts: string[], options: Record<string, unknown>, runtime: Runtime): Promise<void> {
+  const brief = briefParts.join(" ").trim();
+  if (!brief) {
+    throw new CliError("Provide a brief to suggest templates for.");
+  }
+  const top = numberOption(options.top) || 3;
+  const json = Boolean(options.json);
+  const explicitPlanner = stringOption(options.planner);
+
+  let result: SuggestResult;
+  if (options.local) {
+    result = {
+      mode: "local",
+      recommendations: suggestLocalTemplates(brief, top)
+    };
+  } else {
+    const aiResult = await trySuggestWithPlanner({ brief, top, plannerName: explicitPlanner, runtime });
+    if (aiResult) {
+      result = aiResult;
+    } else {
+      const fallbackReason = "No default planner with API key found. Configure one with imgasset planner set <name> --provider openai --default and imgasset planner secret set <name>.";
+      writeLine(runtime.stderr, `Using local template rules. ${fallbackReason}`);
+      result = {
+        mode: "local",
+        fallbackReason,
+        recommendations: suggestLocalTemplates(brief, top)
+      };
+    }
+  }
+
+  if (json) {
+    writeLine(runtime.stdout, JSON.stringify(result, null, 2));
+    return;
+  }
+  printSuggestResult(result, brief, runtime);
 }
 
 async function generateCommand(prompts: string, options: Record<string, unknown>, runtime: Runtime): Promise<void> {
@@ -470,6 +623,14 @@ function parseInteger(value: string): number {
   return parsed;
 }
 
+function parsePositiveInteger(value: string): number {
+  const parsed = parseInteger(value);
+  if (parsed <= 0) {
+    throw new CliError(`Expected a positive integer, got ${value}.`);
+  }
+  return parsed;
+}
+
 function collectOption(value: string, previous: string[]): string[] {
   previous.push(value);
   return previous;
@@ -501,4 +662,94 @@ async function readTemplateVariableFile(path: string, runtime: Runtime): Promise
     throw new CliError("Expected a file path after @.");
   }
   return await readFile(resolve(runtime.cwd, path), "utf8");
+}
+
+function parsePlannerProvider(value: unknown): PlannerProvider {
+  if (value === "openai" || value === "deepseek") {
+    return value;
+  }
+  throw new CliError(`Unsupported planner provider: ${String(value)}. Use openai or deepseek.`);
+}
+
+async function trySuggestWithPlanner({
+  brief,
+  top,
+  plannerName,
+  runtime
+}: {
+  brief: string;
+  top: number;
+  plannerName?: string;
+  runtime: Runtime;
+}): Promise<SuggestResult | null> {
+  const appPath = configPath(runtime.env);
+  const secretPath = secretsPath(runtime.env);
+  const config = await readAppConfig(appPath);
+  const selected = plannerName || config.defaultPlanner;
+  if (!selected) {
+    return null;
+  }
+  const planner = config.planners[selected];
+  if (!planner) {
+    if (plannerName) {
+      throw new CliError(`Planner not found: ${selected}`);
+    }
+    return null;
+  }
+  const secrets = await readSecretConfig(secretPath);
+  const apiKey = resolvePlannerApiKey({ plannerName: selected, provider: planner.provider, secrets, env: runtime.env });
+  if (!apiKey) {
+    if (plannerName) {
+      throw new CliError(`No API key found for planner "${selected}". Run imgasset planner secret set ${selected}.`);
+    }
+    return null;
+  }
+  const recommendations = await suggestTemplatesWithPlanner({
+    brief,
+    top,
+    options: resolvePlannerProfile(selected, planner, apiKey),
+    runtime
+  });
+  return {
+    mode: "ai",
+    planner: selected,
+    recommendations
+  };
+}
+
+function printSuggestResult(result: SuggestResult, brief: string, runtime: Runtime): void {
+  const source = result.mode === "ai" ? `AI planner: ${result.planner}` : "Local rules";
+  writeLine(runtime.stdout, `Template suggestions (${source})`);
+  for (let index = 0; index < result.recommendations.length; index += 1) {
+    const recommendation = result.recommendations[index];
+    if (!recommendation) {
+      continue;
+    }
+    writeLine(runtime.stdout, "");
+    writeLine(runtime.stdout, `${index + 1}. ${recommendation.id} - ${recommendation.title} (${Math.round(recommendation.confidence * 100)}%)`);
+    writeLine(runtime.stdout, `   ${recommendation.reason}`);
+    const variableArgs = variableUseArgs(recommendation, brief);
+    writeLine(runtime.stdout, `   Use: imgasset template use ${recommendation.id}${variableArgs} --out <path>`);
+  }
+}
+
+function variableUseArgs(recommendation: TemplateRecommendation, brief: string): string {
+  const template = getPromptTemplate(recommendation.id);
+  const parts: string[] = [];
+  for (const input of template.inputs) {
+    if (!input.required && !recommendation.variables[input.name]) {
+      continue;
+    }
+    const value = recommendation.variables[input.name] || brief;
+    const printable = value.includes("\n") || value.length > 80 ? `<${input.name}>` : value;
+    parts.push(` --var ${input.name}=${shellQuote(printable)}`);
+  }
+  return parts.join("");
+}
+
+function shellQuote(value: string): string {
+  if (/^[a-zA-Z0-9_./:@-]+$/.test(value)) {
+    return value;
+  }
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }

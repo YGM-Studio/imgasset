@@ -85,4 +85,79 @@ describe("CLI", () => {
     expect(job.size).toBe("1536x1024");
     expect(job.prompt).toContain("flowchart LR");
   });
+
+  it("can save planners, secrets, and list masked secret status", async () => {
+    tempDir = await mkdtemp(resolve(tmpdir(), "imgasset-cli-"));
+    const stdout = capture();
+    const stderr = capture();
+    const env = { IMGASSET_CONFIG_HOME: resolve(tempDir, "config") };
+
+    await expect(
+      runCli(["planner", "set", "deepseek", "--provider", "deepseek", "--default"], {
+        env,
+        stdout: stdout.stream,
+        stderr: stderr.stream
+      })
+    ).resolves.toBe(0);
+    await expect(
+      runCli(["planner", "secret", "set", "deepseek", "--key", "sk-deepseek"], {
+        env,
+        stdout: stdout.stream,
+        stderr: stderr.stream
+      })
+    ).resolves.toBe(0);
+    await expect(runCli(["planner", "list"], { env, stdout: stdout.stream, stderr: stderr.stream })).resolves.toBe(0);
+
+    const config = JSON.parse(await readFile(resolve(tempDir, "config/config.json"), "utf8"));
+    const secrets = JSON.parse(await readFile(resolve(tempDir, "config/secrets.json"), "utf8"));
+    expect(config.defaultPlanner).toBe("deepseek");
+    expect(config.planners.deepseek.provider).toBe("deepseek");
+    expect(secrets.planners.deepseek.apiKey).toBe("sk-deepseek");
+    expect(stdout.text()).toContain("deepseek (default): provider=deepseek");
+    expect(stdout.text()).toContain("secret=yes");
+  });
+
+  it("falls back to local template suggestions when no planner is configured", async () => {
+    tempDir = await mkdtemp(resolve(tmpdir(), "imgasset-cli-"));
+    const stdout = capture();
+    const stderr = capture();
+    const env = { IMGASSET_CONFIG_HOME: resolve(tempDir, "config") };
+
+    await expect(
+      runCli(["template", "suggest", "flowchart LR A --> B", "--json"], {
+        env,
+        stdout: stdout.stream,
+        stderr: stderr.stream
+      })
+    ).resolves.toBe(0);
+
+    const result = JSON.parse(stdout.text()) as { mode: string; fallbackReason: string; recommendations: Array<{ id: string }> };
+    expect(result.mode).toBe("local");
+    expect(result.fallbackReason).toContain("No default planner");
+    expect(result.recommendations[0]?.id).toBe("mermaid-infographic");
+    expect(stderr.text()).toContain("Using local template rules");
+  });
+
+  it("fails for an explicit planner without a key", async () => {
+    tempDir = await mkdtemp(resolve(tmpdir(), "imgasset-cli-"));
+    const stdout = capture();
+    const stderr = capture();
+    const env = { IMGASSET_CONFIG_HOME: resolve(tempDir, "config") };
+
+    await expect(
+      runCli(["planner", "set", "openai", "--provider", "openai"], {
+        env,
+        stdout: stdout.stream,
+        stderr: stderr.stream
+      })
+    ).resolves.toBe(0);
+    await expect(
+      runCli(["template", "suggest", "Agent 架构头图", "--planner", "openai"], {
+        env,
+        stdout: stdout.stream,
+        stderr: stderr.stream
+      })
+    ).resolves.toBe(1);
+    expect(stderr.text()).toContain('No API key found for planner "openai"');
+  });
 });

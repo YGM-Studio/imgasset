@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
 import { CliError } from "./errors.js";
-import type { AppConfig, Profile, ProjectConfig, SecretConfig } from "./types.js";
+import type { AppConfig, PlannerProfile, PlannerProvider, Profile, ProjectConfig, SecretConfig } from "./types.js";
 
 const profileSchema = z.object({
   baseURL: z.string().url().optional(),
@@ -16,13 +16,27 @@ const profileSchema = z.object({
   retries: z.number().int().min(0).optional()
 });
 
+const plannerProviderSchema = z.enum(["openai", "deepseek"]);
+
+const plannerProfileSchema = z.object({
+  provider: plannerProviderSchema,
+  baseURL: z.string().url().optional(),
+  model: z.string().min(1).optional(),
+  proxy: z.string().min(1).optional(),
+  timeoutSeconds: z.number().int().positive().optional(),
+  retries: z.number().int().min(0).optional()
+});
+
 const appConfigSchema = z.object({
   defaultProfile: z.string().min(1).optional(),
-  profiles: z.record(z.string(), profileSchema).default({})
+  profiles: z.record(z.string(), profileSchema).default({}),
+  defaultPlanner: z.string().min(1).optional(),
+  planners: z.record(z.string(), plannerProfileSchema).default({})
 });
 
 const secretConfigSchema = z.object({
-  profiles: z.record(z.string(), z.object({ apiKey: z.string().min(1) })).default({})
+  profiles: z.record(z.string(), z.object({ apiKey: z.string().min(1) })).default({}),
+  planners: z.record(z.string(), z.object({ apiKey: z.string().min(1) })).default({})
 });
 
 const projectConfigSchema = z.object({
@@ -56,7 +70,7 @@ export function secretsPath(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 export async function readAppConfig(path: string): Promise<AppConfig> {
-  const value = await readJson(path, { profiles: {} });
+  const value = await readJson(path, { profiles: {}, planners: {} });
   return appConfigSchema.parse(value);
 }
 
@@ -65,7 +79,7 @@ export async function writeAppConfig(path: string, config: AppConfig): Promise<v
 }
 
 export async function readSecretConfig(path: string): Promise<SecretConfig> {
-  const value = await readJson(path, { profiles: {} });
+  const value = await readJson(path, { profiles: {}, planners: {} });
   return secretConfigSchema.parse(value);
 }
 
@@ -87,6 +101,14 @@ export async function removeSecrets(path: string): Promise<void> {
 
 export function validateProfile(profile: Profile): Profile {
   const parsed = profileSchema.parse(profile);
+  if (parsed.baseURL && !parsed.baseURL.startsWith("https://")) {
+    throw new CliError("baseURL must use https.");
+  }
+  return parsed;
+}
+
+export function validatePlannerProfile(profile: PlannerProfile): PlannerProfile {
+  const parsed = plannerProfileSchema.parse(profile);
   if (parsed.baseURL && !parsed.baseURL.startsWith("https://")) {
     throw new CliError("baseURL must use https.");
   }
@@ -125,6 +147,21 @@ export function resolveApiKey({
   env: NodeJS.ProcessEnv;
 }): string | null {
   return env.IMGASSET_API_KEY || env.OPENAI_API_KEY || secrets.profiles[profileName]?.apiKey || null;
+}
+
+export function resolvePlannerApiKey({
+  plannerName,
+  provider,
+  secrets,
+  env
+}: {
+  plannerName: string;
+  provider: PlannerProvider;
+  secrets: SecretConfig;
+  env: NodeJS.ProcessEnv;
+}): string | null {
+  const providerKey = provider === "openai" ? env.OPENAI_API_KEY : env.DEEPSEEK_API_KEY;
+  return env.IMGASSET_PLANNER_API_KEY || providerKey || secrets.planners[plannerName]?.apiKey || null;
 }
 
 async function readJson(path: string, fallback: unknown): Promise<unknown> {

@@ -53,6 +53,20 @@ Store the image API key outside the project repository:
 imgasset secret set default
 ```
 
+Optional: configure an AI planner for template suggestions:
+
+```bash
+imgasset planner set openai --provider openai --model gpt-5.5 --default
+imgasset planner secret set openai
+```
+
+DeepSeek is also supported through its OpenAI-compatible chat API:
+
+```bash
+imgasset planner set deepseek --provider deepseek --model deepseek-v4-flash
+imgasset planner secret set deepseek
+```
+
 Write prompts as JSONL:
 
 ```jsonl
@@ -146,6 +160,22 @@ imgasset template use mermaid-infographic \
 
 Template rendering is deterministic. It only fills variables and writes a prompt job; generation still runs through the normal `generate` or `run` commands.
 
+Recommend templates from a brief:
+
+```bash
+imgasset template suggest "把这段 Mermaid 做成高级技术信息图"
+```
+
+By default, `suggest` uses the default AI planner when one is configured and has an API key. If no planner is ready, it falls back to local matching rules and stays usable offline.
+
+Use a specific planner, force local rules, or print JSON:
+
+```bash
+imgasset template suggest "给杭州做一张收藏级城市海报" --planner deepseek
+imgasset template suggest "给一篇 Agent 架构文章做头图" --local
+imgasset template suggest "诗句 小荷才露尖尖角" --json
+```
+
 ## Config Files
 
 Global config is stored outside project repositories:
@@ -202,11 +232,16 @@ Avoid passing long-lived keys with `--key` in shared shells because shell histor
 imgasset config init
 imgasset profile set <name>
 imgasset profile list
+imgasset planner set <name>
+imgasset planner list
+imgasset planner secret set <name>
+imgasset planner secret unset <name>
 imgasset secret set <profile>
 imgasset secret unset <profile>
 imgasset template list
 imgasset template show <id>
 imgasset template use <id>
+imgasset template suggest <brief>
 imgasset generate <prompts>
 imgasset compress <input>
 imgasset run <prompts>

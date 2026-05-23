@@ -56,7 +56,13 @@ Initial implementation can be local and rule-based:
 - match tags such as `tech`, `diagram`, `poster`, `wallpaper`, `city`;
 - return ranked template IDs with short reasons.
 
-Later implementation can use a text model, but this should be introduced as a separate planner profile rather than reusing the image generation profile.
+Implemented direction:
+
+- `imgasset template suggest <brief...>` recommends templates without rendering JSONL jobs or rewriting full prompts.
+- The command is AI-first when a default planner is configured and has a key.
+- If no usable planner exists, it falls back to local rules.
+- AI planner config lives in a separate `planner` namespace instead of reusing image generation profiles.
+- OpenAI planners use the Responses API; DeepSeek planners use the OpenAI-compatible Chat Completions API.
 
 ### 3. Compose
 
@@ -78,6 +84,8 @@ Behavior:
 - remove irrelevant template sections;
 - strengthen missing constraints;
 - record provenance such as template ID, template version, planner model, and source brief when prompt job metadata is supported.
+
+Status: future work. Compose should not be folded into `suggest`; `suggest` remains recommendation-only.
 
 ## Built-In Template Set
 

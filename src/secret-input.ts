@@ -58,3 +58,7 @@ export async function readSecretValue(runtime: Runtime, prompt = "API key: "): P
 export function printStoredSecret(runtime: Runtime, profile: string, path: string): void {
   writeLine(runtime.stdout, `Stored API key for profile "${profile}" at ${path}.`);
 }
+
+export function printStoredPlannerSecret(runtime: Runtime, planner: string, path: string): void {
+  writeLine(runtime.stdout, `Stored API key for planner "${planner}" at ${path}.`);
+}

@@ -9,13 +9,27 @@ export interface Profile {
   retries?: number;
 }
 
+export type PlannerProvider = "openai" | "deepseek";
+
+export interface PlannerProfile {
+  provider: PlannerProvider;
+  baseURL?: string;
+  model?: string;
+  proxy?: string;
+  timeoutSeconds?: number;
+  retries?: number;
+}
+
 export interface AppConfig {
   defaultProfile?: string;
   profiles: Record<string, Profile>;
+  defaultPlanner?: string;
+  planners: Record<string, PlannerProfile>;
 }
 
 export interface SecretConfig {
   profiles: Record<string, { apiKey: string }>;
+  planners: Record<string, { apiKey: string }>;
 }
 
 export interface CompressConfig {
@@ -74,4 +88,21 @@ export const DEFAULT_PROFILE: Required<Omit<Profile, "proxy">> = {
   outputFormat: "png",
   timeoutSeconds: 360,
   retries: 2
+};
+
+export const DEFAULT_PLANNER_PROFILES: Record<PlannerProvider, Required<Omit<PlannerProfile, "proxy">>> = {
+  openai: {
+    provider: "openai",
+    baseURL: "https://api.openai.com/v1",
+    model: "gpt-5.5",
+    timeoutSeconds: 120,
+    retries: 2
+  },
+  deepseek: {
+    provider: "deepseek",
+    baseURL: "https://api.deepseek.com",
+    model: "deepseek-v4-flash",
+    timeoutSeconds: 120,
+    retries: 2
+  }
 };
