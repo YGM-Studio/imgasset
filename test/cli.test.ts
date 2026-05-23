@@ -160,4 +160,62 @@ describe("CLI", () => {
     ).resolves.toBe(1);
     expect(stderr.text()).toContain('No API key found for planner "openai"');
   });
+
+  it("composes a prompt job and appends it to JSONL", async () => {
+    tempDir = await mkdtemp(resolve(tmpdir(), "imgasset-cli-"));
+    const stdout = capture();
+    const stderr = capture();
+    const env = { IMGASSET_CONFIG_HOME: resolve(tempDir, "config") };
+    const fetchImpl = (async () =>
+      new Response(
+        JSON.stringify({
+          output_text: JSON.stringify({
+            templateId: "info-visual",
+            prompt: "Create a premium editorial information visual about imgasset prompt workflows.",
+            size: "1536x1024",
+            reason: "The brief asks for an editorial visual."
+          })
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )) as typeof fetch;
+
+    await expect(
+      runCli(["planner", "set", "openai", "--provider", "openai", "--default"], {
+        env,
+        stdout: stdout.stream,
+        stderr: stderr.stream
+      })
+    ).resolves.toBe(0);
+    await expect(
+      runCli(["template", "compose", "imgasset prompt workflows", "--out", "article/visual.png", "--append", "prompts.jsonl"], {
+        env: { ...env, OPENAI_API_KEY: "secret" },
+        cwd: tempDir,
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        fetchImpl
+      })
+    ).resolves.toBe(0);
+
+    const line = (await readFile(resolve(tempDir, "prompts.jsonl"), "utf8")).trim();
+    const job = JSON.parse(line) as { out: string; prompt: string; size: string };
+    expect(job.out).toBe("article/visual.png");
+    expect(job.prompt).toContain("premium editorial information visual");
+    expect(job.size).toBe("1536x1024");
+  });
+
+  it("requires a planner for compose", async () => {
+    tempDir = await mkdtemp(resolve(tmpdir(), "imgasset-cli-"));
+    const stdout = capture();
+    const stderr = capture();
+    const env = { IMGASSET_CONFIG_HOME: resolve(tempDir, "config") };
+
+    await expect(
+      runCli(["template", "compose", "Agent 架构头图", "--out", "article/agent.png"], {
+        env,
+        stdout: stdout.stream,
+        stderr: stderr.stream
+      })
+    ).resolves.toBe(1);
+    expect(stderr.text()).toContain("No planner selected");
+  });
 });

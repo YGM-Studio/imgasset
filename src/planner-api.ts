@@ -1,11 +1,11 @@
 import { ProxyAgent } from "undici";
 import { CliError, ImageApiError } from "./errors.js";
 import { USER_AGENT } from "./package-info.js";
-import { buildSuggestInstruction, normalizeAiRecommendations } from "./suggest.js";
+import { buildComposeInstruction, buildSuggestInstruction, normalizeAiRecommendations, normalizeComposeResult } from "./suggest.js";
 import { DEFAULT_PLANNER_PROFILES } from "./types.js";
 import type { Runtime } from "./io.js";
 import type { PlannerProfile } from "./types.js";
-import type { TemplateRecommendation } from "./suggest.js";
+import type { ComposeResult, TemplateRecommendation } from "./suggest.js";
 
 export interface ResolvedPlannerOptions {
   plannerName: string;
@@ -32,6 +32,22 @@ export async function suggestTemplatesWithPlanner({
   const instruction = buildSuggestInstruction({ brief, top });
   const response = await requestWithRetries(instruction, options, runtime);
   return normalizeAiRecommendations(response, top);
+}
+
+export async function composePromptWithPlanner({
+  brief,
+  templateId,
+  options,
+  runtime
+}: {
+  brief: string;
+  templateId?: string;
+  options: ResolvedPlannerOptions;
+  runtime: Runtime;
+}): Promise<ComposeResult> {
+  const instruction = buildComposeInstruction({ brief, templateId });
+  const response = await requestWithRetries(instruction, options, runtime);
+  return normalizeComposeResult(response, templateId);
 }
 
 export function resolvePlannerProfile(name: string, profile: PlannerProfile, apiKey: string): ResolvedPlannerOptions {
@@ -79,7 +95,7 @@ async function requestOpenAI(instruction: string, options: ResolvedPlannerOption
       input: [
         {
           role: "system",
-          content: "You recommend imgasset image prompt templates. Return JSON only."
+          content: "You plan imgasset image prompt templates and compose final image prompts. Return JSON only."
         },
         {
           role: "user",
@@ -106,7 +122,7 @@ async function requestDeepSeek(instruction: string, options: ResolvedPlannerOpti
       messages: [
         {
           role: "system",
-          content: "You recommend imgasset image prompt templates. Return JSON only."
+          content: "You plan imgasset image prompt templates and compose final image prompts. Return JSON only."
         },
         {
           role: "user",

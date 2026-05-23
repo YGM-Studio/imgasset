@@ -1,6 +1,6 @@
 import { Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { resolvePlannerProfile, suggestTemplatesWithPlanner } from "../src/planner-api.js";
+import { composePromptWithPlanner, resolvePlannerProfile, suggestTemplatesWithPlanner } from "../src/planner-api.js";
 import { normalizeAiRecommendations, suggestLocalTemplates } from "../src/suggest.js";
 import type { Runtime } from "../src/io.js";
 
@@ -55,6 +55,40 @@ describe("planner API", () => {
     expect(requests[0]?.url).toBe("https://api.openai.com/v1/responses");
     expect((requests[0]?.body as { model?: string }).model).toBe("gpt-5.5");
     expect(recommendations[0]).toMatchObject({ id: "mermaid-infographic", title: "Mermaid 信息图重构" });
+  });
+
+  it("composes a final prompt through OpenAI responses", async () => {
+    const requests: Array<{ url: string; body: unknown }> = [];
+    const fetchImpl = (async (input, init) => {
+      requests.push({ url: String(input), body: JSON.parse(String(init?.body)) });
+      return new Response(
+        JSON.stringify({
+          output_text: JSON.stringify({
+            templateId: "handdrawn-knowledge",
+            prompt: "请生成一张 Hermes Agent 架构总览手绘知识图解。",
+            size: "1536x1024",
+            reason: "Architecture brief fits a hand-drawn knowledge diagram."
+          })
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }) as typeof fetch;
+
+    const result = await composePromptWithPlanner({
+      brief: "Hermes Agent 架构总览",
+      templateId: "handdrawn-knowledge",
+      options: resolvePlannerProfile("openai", { provider: "openai" }, "secret"),
+      runtime: runtimeWithFetch(fetchImpl)
+    });
+
+    expect(requests[0]?.url).toBe("https://api.openai.com/v1/responses");
+    expect(JSON.stringify(requests[0]?.body)).toContain("You must use templateId handdrawn-knowledge");
+    expect(result).toMatchObject({
+      templateId: "handdrawn-knowledge",
+      templateTitle: "手绘知识图解",
+      prompt: "请生成一张 Hermes Agent 架构总览手绘知识图解。",
+      size: "1536x1024"
+    });
   });
 
   it("uses DeepSeek chat completions endpoint", async () => {

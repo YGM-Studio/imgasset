@@ -176,6 +176,24 @@ imgasset template suggest "给一篇 Agent 架构文章做头图" --local
 imgasset template suggest "诗句 小荷才露尖尖角" --json
 ```
 
+Compose a final prompt job with an AI planner:
+
+```bash
+imgasset template compose "给一篇 Agent 架构文章做手绘知识图解" \
+  --out article/agent-map.png \
+  --append prompts.jsonl
+```
+
+Force a specific template or include a source file:
+
+```bash
+imgasset template compose "把这段 Mermaid 做成高级技术信息图" \
+  --template mermaid-infographic \
+  --input-file flow.mmd \
+  --out article/flow.png \
+  --append prompts.jsonl
+```
+
 ## Config Files
 
 Global config is stored outside project repositories:
@@ -242,6 +260,7 @@ imgasset template list
 imgasset template show <id>
 imgasset template use <id>
 imgasset template suggest <brief>
+imgasset template compose <brief>
 imgasset generate <prompts>
 imgasset compress <input>
 imgasset run <prompts>

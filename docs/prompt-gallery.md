@@ -83,9 +83,16 @@ Behavior:
 - rewrite the final prompt for the specific task;
 - remove irrelevant template sections;
 - strengthen missing constraints;
-- record provenance such as template ID, template version, planner model, and source brief when prompt job metadata is supported.
+- write one composed JSONL prompt job to stdout or append it to a prompt file.
 
-Status: future work. Compose should not be folded into `suggest`; `suggest` remains recommendation-only.
+Implemented direction:
+
+- `imgasset template compose <brief...>` requires a configured AI planner.
+- `--template <id>` forces a specific built-in template.
+- `--input-file <path>` appends source material to the brief.
+- `--out <path>` is required because compose emits a prompt job.
+- `--append <path>` appends the job to a JSONL prompt file.
+- Compose does not fall back to local rules, because rewriting a final prompt requires an AI planner.
 
 ## Built-In Template Set
 

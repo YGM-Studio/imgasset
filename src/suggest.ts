@@ -17,6 +17,16 @@ export interface SuggestResult {
   recommendations: TemplateRecommendation[];
 }
 
+export interface ComposeResult {
+  templateId: string;
+  templateTitle: string;
+  prompt: string;
+  size?: string;
+  quality?: string;
+  outputFormat?: string;
+  reason?: string;
+}
+
 export interface TemplateMetadata {
   id: string;
   title: string;
@@ -123,6 +133,34 @@ export function normalizeAiRecommendations(value: unknown, top: number): Templat
   return result;
 }
 
+export function normalizeComposeResult(value: unknown, fallbackTemplateId?: string): ComposeResult {
+  if (!value || typeof value !== "object") {
+    throw new CliError("AI planner response is not a JSON object.");
+  }
+  const byId = new Map(listPromptTemplates().map((template) => [template.id, template]));
+  const id = readStringProperty(value, "templateId") || fallbackTemplateId;
+  if (!id) {
+    throw new CliError("AI planner response does not contain templateId.");
+  }
+  const template = byId.get(id);
+  if (!template) {
+    throw new CliError(`AI planner returned unknown templateId: ${id}`);
+  }
+  const prompt = readStringProperty(value, "prompt");
+  if (!prompt) {
+    throw new CliError("AI planner response does not contain prompt.");
+  }
+  return {
+    templateId: id,
+    templateTitle: template.title,
+    prompt,
+    size: readStringProperty(value, "size") || template.defaultSize,
+    quality: readStringProperty(value, "quality") || template.defaultQuality,
+    outputFormat: readStringProperty(value, "outputFormat") || template.defaultOutputFormat,
+    reason: readStringProperty(value, "reason") || undefined
+  };
+}
+
 export function buildSuggestInstruction({
   brief,
   top
@@ -156,6 +194,65 @@ export function buildSuggestInstruction({
     null,
     2
   );
+}
+
+export function buildComposeInstruction({
+  brief,
+  templateId
+}: {
+  brief: string;
+  templateId?: string;
+}): string {
+  const templates = templateId ? [getTemplateForCompose(templateId)] : listPromptTemplates();
+  return JSON.stringify(
+    {
+      task: "Choose a built-in imgasset image prompt template and compose the final image-generation prompt for the user's brief.",
+      output: {
+        templateId: "chosen-template-id",
+        prompt: "final complete image generation prompt",
+        size: "optional image size, only if the chosen template has a strong default",
+        quality: "optional quality override",
+        outputFormat: "optional output format override",
+        reason: "short reason in the user's language"
+      },
+      rules: [
+        "Return valid JSON only. No Markdown.",
+        "Use only template IDs from the templates list.",
+        "The prompt must be ready to send to an image generation model.",
+        "You may trim irrelevant template sections, but preserve the selected template's core visual constraints.",
+        "Do not invent facts, metrics, current events, prices, rankings, or brand claims not present in the brief.",
+        "Do not include API keys, shell commands, JSONL, or explanations inside prompt.",
+        "If the brief contains source material, include it in the prompt as content to visualize.",
+        templateId ? `You must use templateId ${templateId}.` : "Choose the best template for the brief."
+      ],
+      brief,
+      templates: templates.map((template) => ({
+        id: template.id,
+        title: template.title,
+        summary: template.summary,
+        tags: template.tags,
+        defaultSize: template.defaultSize,
+        inputs: template.inputs.map((input) => ({
+          name: input.name,
+          label: input.label,
+          required: input.required,
+          description: input.description,
+          default: input.default
+        })),
+        template: template.template
+      }))
+    },
+    null,
+    2
+  );
+}
+
+function getTemplateForCompose(id: string): PromptTemplate {
+  const template = listPromptTemplates().find((item) => item.id === id);
+  if (!template) {
+    throw new CliError(`Template not found: ${id}`);
+  }
+  return template;
 }
 
 function rankRecommendations(

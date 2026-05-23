@@ -23,14 +23,15 @@ import { createRuntime, writeLine } from "./io.js";
 import { readPromptJobs } from "./jsonl.js";
 import { PACKAGE_VERSION } from "./package-info.js";
 import { taskNameFromPromptPath } from "./paths.js";
-import { resolvePlannerProfile, suggestTemplatesWithPlanner } from "./planner-api.js";
+import { composePromptWithPlanner, resolvePlannerProfile, suggestTemplatesWithPlanner } from "./planner-api.js";
 import { printStoredPlannerSecret, printStoredSecret, readSecretValue } from "./secret-input.js";
 import { suggestLocalTemplates } from "./suggest.js";
 import { getPromptTemplate, listPromptTemplates, renderPromptTemplate } from "./templates.js";
 import { DEFAULT_PLANNER_PROFILES, DEFAULT_PROFILE } from "./types.js";
 import type { PlannerProfile, PlannerProvider, Profile, ProjectConfig, PromptJob, ResolvedGenerationOptions } from "./types.js";
 import type { Runtime, RuntimeOverrides } from "./io.js";
-import type { SuggestResult, TemplateRecommendation } from "./suggest.js";
+import type { ComposeResult, SuggestResult, TemplateRecommendation } from "./suggest.js";
+import type { ResolvedPlannerOptions } from "./planner-api.js";
 
 export async function runCli(argv: string[], overrides: RuntimeOverrides = {}): Promise<number> {
   const runtime = createRuntime(overrides);
@@ -162,6 +163,22 @@ function createProgram(runtime: Runtime): Command {
     .option("--json", "print machine-readable JSON")
     .option("--top <count>", "maximum recommendations to return", parsePositiveInteger, 3)
     .action(async (briefParts, options) => suggestTemplate(briefParts, options, runtime));
+
+  template
+    .command("compose <brief...>")
+    .description("Use an AI planner to compose a final prompt job from a brief.")
+    .requiredOption("--out <path>", "prompt job output path")
+    .option("--planner <name>", "AI planner profile name")
+    .option("--template <id>", "force a specific built-in template")
+    .option("--input-file <path>", "append file contents to the brief")
+    .option("--append <path>", "append the composed prompt job to a JSONL file")
+    .option("--json", "print composed prompt job as JSON only")
+    .option("--model <model>", "prompt job image model override")
+    .option("--size <size>", "prompt job size override")
+    .option("--quality <quality>", "prompt job quality override")
+    .option("--output-format <format>", "prompt job output format override")
+    .option("-n <count>", "number of images to generate", parseInteger)
+    .action(async (briefParts, options) => composeTemplate(briefParts, options, runtime));
 
   program
     .command("generate <prompts>")
@@ -464,6 +481,48 @@ async function suggestTemplate(briefParts: string[], options: Record<string, unk
   printSuggestResult(result, brief, runtime);
 }
 
+async function composeTemplate(briefParts: string[], options: Record<string, unknown>, runtime: Runtime): Promise<void> {
+  const brief = await composeBrief(briefParts, options, runtime);
+  if (!brief) {
+    throw new CliError("Provide a brief to compose a prompt from.");
+  }
+  const templateId = stringOption(options.template);
+  if (templateId) {
+    getPromptTemplate(templateId);
+  }
+  const planner = await requirePlanner(stringOption(options.planner), runtime);
+  const composed = await composePromptWithPlanner({
+    brief,
+    templateId,
+    options: planner.options,
+    runtime
+  });
+  const job = composedPromptJob(composed, options);
+  const line = JSON.stringify(job);
+  const appendPath = stringOption(options.append);
+
+  if (appendPath) {
+    const target = resolve(runtime.cwd, appendPath);
+    await mkdir(dirname(target), { recursive: true });
+    await appendFile(target, `${line}\n`, "utf8");
+    if (!options.json) {
+      writeLine(runtime.stdout, `Appended composed prompt job to ${target}.`);
+      writeLine(runtime.stdout, `Template: ${composed.templateId} - ${composed.templateTitle}`);
+      if (composed.reason) {
+        writeLine(runtime.stdout, `Reason: ${composed.reason}`);
+      }
+    }
+    return;
+  }
+
+  if (options.json) {
+    writeLine(runtime.stdout, line);
+    return;
+  }
+  writeLine(runtime.stdout, line);
+  writeLine(runtime.stderr, `Composed with planner "${planner.name}" using template ${composed.templateId}.`);
+}
+
 async function generateCommand(prompts: string, options: Record<string, unknown>, runtime: Runtime): Promise<void> {
   const project = await loadProjectConfig(options, runtime);
   const jobs = await readPromptJobs(resolve(runtime.cwd, prompts));
@@ -717,6 +776,29 @@ async function trySuggestWithPlanner({
   };
 }
 
+async function requirePlanner(plannerName: string | undefined, runtime: Runtime): Promise<{ name: string; options: ResolvedPlannerOptions }> {
+  const appPath = configPath(runtime.env);
+  const secretPath = secretsPath(runtime.env);
+  const config = await readAppConfig(appPath);
+  const selected = plannerName || config.defaultPlanner;
+  if (!selected) {
+    throw new CliError("No planner selected. Use --planner or set a default planner.");
+  }
+  const planner = config.planners[selected];
+  if (!planner) {
+    throw new CliError(`Planner not found: ${selected}`);
+  }
+  const secrets = await readSecretConfig(secretPath);
+  const apiKey = resolvePlannerApiKey({ plannerName: selected, provider: planner.provider, secrets, env: runtime.env });
+  if (!apiKey) {
+    throw new CliError(`No API key found for planner "${selected}". Run imgasset planner secret set ${selected}.`);
+  }
+  return {
+    name: selected,
+    options: resolvePlannerProfile(selected, planner, apiKey)
+  };
+}
+
 function printSuggestResult(result: SuggestResult, brief: string, runtime: Runtime): void {
   const source = result.mode === "ai" ? `AI planner: ${result.planner}` : "Local rules";
   writeLine(runtime.stdout, `Template suggestions (${source})`);
@@ -752,4 +834,32 @@ function shellQuote(value: string): string {
     return value;
   }
   return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+async function composeBrief(briefParts: string[], options: Record<string, unknown>, runtime: Runtime): Promise<string> {
+  const parts: string[] = [];
+  const inline = briefParts.join(" ").trim();
+  if (inline) {
+    parts.push(inline);
+  }
+  const inputFile = stringOption(options.inputFile);
+  if (inputFile) {
+    const contents = await readFile(resolve(runtime.cwd, inputFile), "utf8");
+    parts.push(contents.trim());
+  }
+  return parts.filter((part) => part.length > 0).join("\n\n");
+}
+
+function composedPromptJob(composed: ComposeResult, options: Record<string, unknown>): PromptJob {
+  return {
+    out: String(options.out),
+    prompt: composed.prompt,
+    ...stripUndefined({
+      model: stringOption(options.model),
+      size: stringOption(options.size) || composed.size,
+      quality: stringOption(options.quality) || composed.quality,
+      outputFormat: stringOption(options.outputFormat) || composed.outputFormat,
+      n: numberOption(options.n)
+    })
+  };
 }
