@@ -119,6 +119,33 @@ Optional per-job overrides:
 
 The `out` path is resolved inside the raw output directory. Parent-directory escapes are rejected.
 
+## Prompt Templates
+
+`imgasset` includes a small built-in Prompt Gallery for reusable image prompt templates.
+
+List templates:
+
+```bash
+imgasset template list
+```
+
+Inspect a template:
+
+```bash
+imgasset template show mermaid-infographic
+```
+
+Render a template as a JSONL prompt job:
+
+```bash
+imgasset template use mermaid-infographic \
+  --var content=@flow.mmd \
+  --out article/flow.png \
+  --append prompts.jsonl
+```
+
+Template rendering is deterministic. It only fills variables and writes a prompt job; generation still runs through the normal `generate` or `run` commands.
+
 ## Config Files
 
 Global config is stored outside project repositories:
@@ -177,6 +204,9 @@ imgasset profile set <name>
 imgasset profile list
 imgasset secret set <profile>
 imgasset secret unset <profile>
+imgasset template list
+imgasset template show <id>
+imgasset template use <id>
 imgasset generate <prompts>
 imgasset compress <input>
 imgasset run <prompts>

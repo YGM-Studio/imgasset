@@ -1,5 +1,5 @@
-import { access } from "node:fs/promises";
-import { resolve } from "node:path";
+import { access, appendFile, mkdir, readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { Command, CommanderError } from "commander";
 import {
   configPath,
@@ -22,8 +22,9 @@ import { readPromptJobs } from "./jsonl.js";
 import { PACKAGE_VERSION } from "./package-info.js";
 import { taskNameFromPromptPath } from "./paths.js";
 import { printStoredSecret, readSecretValue } from "./secret-input.js";
+import { getPromptTemplate, listPromptTemplates, renderPromptTemplate } from "./templates.js";
 import { DEFAULT_PROFILE } from "./types.js";
-import type { Profile, ProjectConfig, ResolvedGenerationOptions } from "./types.js";
+import type { Profile, ProjectConfig, PromptJob, ResolvedGenerationOptions } from "./types.js";
 import type { Runtime, RuntimeOverrides } from "./io.js";
 
 export async function runCli(argv: string[], overrides: RuntimeOverrides = {}): Promise<number> {
@@ -92,6 +93,31 @@ function createProgram(runtime: Runtime): Command {
     .command("unset <profile>")
     .description("Remove an API key for a profile.")
     .action(async (profileName) => unsetSecret(profileName, runtime));
+
+  const template = program.command("template").description("Browse and use built-in prompt templates.");
+  template
+    .command("list")
+    .description("List built-in prompt templates.")
+    .action(async () => listTemplates(runtime));
+
+  template
+    .command("show <id>")
+    .description("Show a built-in prompt template.")
+    .option("--prompt", "print only the raw prompt template")
+    .action(async (id, options) => showTemplate(id, options, runtime));
+
+  template
+    .command("use <id>")
+    .description("Render a built-in prompt template as a JSONL prompt job.")
+    .requiredOption("--out <path>", "prompt job output path")
+    .option("--var <name=value>", "template variable; use @path to read a file", collectOption, [])
+    .option("--append <path>", "append the rendered prompt job to a JSONL file")
+    .option("--model <model>", "prompt job model override")
+    .option("--size <size>", "prompt job size override")
+    .option("--quality <quality>", "prompt job quality override")
+    .option("--output-format <format>", "prompt job output format override")
+    .option("-n <count>", "number of images to generate", parseInteger)
+    .action(async (id, options) => useTemplate(id, options, runtime));
 
   program
     .command("generate <prompts>")
@@ -218,6 +244,71 @@ async function unsetSecret(profileName: string, runtime: Runtime): Promise<void>
   delete secrets.profiles[profileName];
   await writeSecretConfig(secretPath, secrets);
   writeLine(runtime.stdout, `Removed API key for profile "${profileName}".`);
+}
+
+async function listTemplates(runtime: Runtime): Promise<void> {
+  for (const template of listPromptTemplates()) {
+    const size = template.defaultSize ? ` size=${template.defaultSize}` : "";
+    writeLine(runtime.stdout, `${template.id}: ${template.title}${size}`);
+    writeLine(runtime.stdout, `  ${template.summary}`);
+    writeLine(runtime.stdout, `  tags: ${template.tags.join(", ")}`);
+  }
+}
+
+async function showTemplate(id: string, options: Record<string, unknown>, runtime: Runtime): Promise<void> {
+  const template = getPromptTemplate(id);
+  if (options.prompt) {
+    writeLine(runtime.stdout, template.template);
+    return;
+  }
+
+  writeLine(runtime.stdout, `${template.id}: ${template.title}`);
+  writeLine(runtime.stdout, template.summary);
+  writeLine(runtime.stdout, `version: ${template.version}`);
+  writeLine(runtime.stdout, `source: ${template.source}`);
+  if (template.defaultSize) {
+    writeLine(runtime.stdout, `defaultSize: ${template.defaultSize}`);
+  }
+  writeLine(runtime.stdout, `tags: ${template.tags.join(", ")}`);
+  writeLine(runtime.stdout, "inputs:");
+  for (const input of template.inputs) {
+    const required = input.required ? "required" : "optional";
+    const defaultText = input.default !== undefined ? `, default=${input.default}` : "";
+    writeLine(runtime.stdout, `  ${input.name}: ${input.label} (${required}${defaultText})`);
+    if (input.description) {
+      writeLine(runtime.stdout, `    ${input.description}`);
+    }
+  }
+  writeLine(runtime.stdout, "");
+  writeLine(runtime.stdout, template.template);
+}
+
+async function useTemplate(id: string, options: Record<string, unknown>, runtime: Runtime): Promise<void> {
+  const values = await parseTemplateVariables(options.var, runtime);
+  const template = getPromptTemplate(id);
+  const prompt = renderPromptTemplate(id, values);
+  const job: PromptJob = {
+    out: String(options.out),
+    prompt,
+    ...stripUndefined({
+      model: stringOption(options.model),
+      size: stringOption(options.size) || template.defaultSize,
+      quality: stringOption(options.quality) || template.defaultQuality,
+      outputFormat: stringOption(options.outputFormat) || template.defaultOutputFormat,
+      n: numberOption(options.n)
+    })
+  };
+  const line = JSON.stringify(job);
+  const appendPath = stringOption(options.append);
+  if (!appendPath) {
+    writeLine(runtime.stdout, line);
+    return;
+  }
+
+  const target = resolve(runtime.cwd, appendPath);
+  await mkdir(dirname(target), { recursive: true });
+  await appendFile(target, `${line}\n`, "utf8");
+  writeLine(runtime.stdout, `Appended prompt job to ${target}.`);
 }
 
 async function generateCommand(prompts: string, options: Record<string, unknown>, runtime: Runtime): Promise<void> {
@@ -377,4 +468,37 @@ function parseInteger(value: string): number {
     throw new CliError(`Expected an integer, got ${value}.`);
   }
   return parsed;
+}
+
+function collectOption(value: string, previous: string[]): string[] {
+  previous.push(value);
+  return previous;
+}
+
+async function parseTemplateVariables(value: unknown, runtime: Runtime): Promise<Record<string, string>> {
+  const entries = Array.isArray(value) ? value : [];
+  const result: Record<string, string> = {};
+  for (const entry of entries) {
+    if (typeof entry !== "string") {
+      continue;
+    }
+    const equalsIndex = entry.indexOf("=");
+    if (equalsIndex <= 0) {
+      throw new CliError(`Expected --var name=value, got ${entry}.`);
+    }
+    const name = entry.slice(0, equalsIndex);
+    if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(name)) {
+      throw new CliError(`Invalid template variable name: ${name}`);
+    }
+    const rawValue = entry.slice(equalsIndex + 1);
+    result[name] = rawValue.startsWith("@") ? await readTemplateVariableFile(rawValue.slice(1), runtime) : rawValue;
+  }
+  return result;
+}
+
+async function readTemplateVariableFile(path: string, runtime: Runtime): Promise<string> {
+  if (!path) {
+    throw new CliError("Expected a file path after @.");
+  }
+  return await readFile(resolve(runtime.cwd, path), "utf8");
 }

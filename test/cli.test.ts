@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { Writable } from "node:stream";
@@ -54,5 +54,35 @@ describe("CLI", () => {
     const config = JSON.parse(await readFile(resolve(tempDir, "config/config.json"), "utf8"));
     expect(config.defaultProfile).toBe("default");
     expect(config.profiles.default.model).toBe("gpt-image-2");
+  });
+
+  it("renders a prompt template into a JSONL file", async () => {
+    tempDir = await mkdtemp(resolve(tmpdir(), "imgasset-cli-"));
+    const stdout = capture();
+    const stderr = capture();
+    await writeFile(resolve(tempDir, "flow.mmd"), "flowchart LR\n  A[写 prompts.jsonl] --> B[imgasset generate]\n");
+
+    await expect(
+      runCli(
+        [
+          "template",
+          "use",
+          "mermaid-infographic",
+          "--var",
+          "content=@flow.mmd",
+          "--out",
+          "article/flow.png",
+          "--append",
+          "prompts.jsonl"
+        ],
+        { cwd: tempDir, stdout: stdout.stream, stderr: stderr.stream }
+      )
+    ).resolves.toBe(0);
+
+    const line = (await readFile(resolve(tempDir, "prompts.jsonl"), "utf8")).trim();
+    const job = JSON.parse(line) as { out: string; prompt: string; size: string };
+    expect(job.out).toBe("article/flow.png");
+    expect(job.size).toBe("1536x1024");
+    expect(job.prompt).toContain("flowchart LR");
   });
 });
