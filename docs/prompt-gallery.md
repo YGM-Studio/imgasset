@@ -104,6 +104,10 @@ The first gallery should include these reusable prompt patterns:
 - `monument-valley-poster`: minimal surreal isometric poster for poetic themes.
 - `cold-ink-wallpaper`: cold ink art wallpaper for quiet artistic scenes.
 - `impressionist-info-poster`: impressionist editorial poster with left-side information hierarchy.
+- `geometric-window-poetry-poster`: poetic cultural poster with real objects breaking through a geometric mood window.
+- `scroll-beauty-poster`: vertical oriental fantasy portrait poster centered on a figure breaking out of a scroll.
+- `conceptual-logo`: conceptual narrative minimal logo direction for art, creative, and experimental brands.
+- `botanical-knowledge-card`: oriental whitespace botanical knowledge card for flowers, plants, and light information.
 - `mermaid-infographic`: professional technical infographic reconstructed from Mermaid or related diagram sources.
 - `city-line-poster`: minimal line-art city poster for places and landmarks.
 - `letter-window-poster`: large-letter theme poster using English or romanized title as the visual container.

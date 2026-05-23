@@ -77,7 +77,20 @@ export function suggestLocalTemplates(brief: string, top: number): TemplateRecom
   }
   if (/(诗|诗句|课件|语文|quote|短句|俳句|古文|文学|蜻蜓|荷|月|春|秋|雪|山水)/i.test(brief)) {
     add("impressionist-info-poster", 76, "适合诗句、课件和编辑型信息海报。");
+    add("geometric-window-poetry-poster", 70, "适合把诗句和文化意象做成几何窗口式东方留白海报。");
     add("monument-valley-poster", 58, "适合把短句转成诗意等距空间海报。");
+  }
+  if (/(节气|文化主题|鉴赏|东方留白|莲叶|荷叶|花苞|水面|几何窗口|破框)/i.test(brief)) {
+    add("geometric-window-poetry-poster", 82, "适合真实物象穿越几何情绪窗口的文化主题海报。");
+  }
+  if (/(古风|人像|仙子|花神|美人|画卷|挂轴|破卷|东方幻想|角色|手机壁纸|portrait|character)/i.test(brief)) {
+    add("scroll-beauty-poster", 84, "适合东方幻想人像和画中人破卷而出的竖版叙事海报。");
+  }
+  if (/(logo|标志|品牌识别|品牌名|项目名|identity|branding|小众品牌|工作室|视觉识别)/i.test(brief)) {
+    add("conceptual-logo", 88, "适合带隐喻、小场景和大留白的概念型极简 Logo 方向。");
+  }
+  if (/(花卉|植物|图鉴|知识卡片|知识图鉴|植物百科|养护|花期|蓝雪花|botanical|plant|flower)/i.test(brief)) {
+    add("botanical-knowledge-card", 86, "适合花卉植物和轻量知识点的东方留白知识卡片。");
   }
   if (/(城市|街区|地标|旅行|海报|city|street|landmark|bund|外滩|上海|杭州|北京|深圳|广州|成都|东京|巴黎|纽约)/i.test(brief)) {
     add("city-line-poster", 82, "适合城市、街区和地标的线描收藏海报。");
